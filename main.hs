@@ -1,5 +1,12 @@
+module Stack (Stack, stack2Str,createEmptyStack, isEmpty, push) where 
+
 import Data.List (intercalate)
 import qualified Data.Map as Map
+
+data StackValue = I Integer | B Bool deriving Show
+newtype Stack = St [StackValue] deriving Show
+
+
 -- Part 1
 
 -- Do not modify our definition of Inst and Code
@@ -7,80 +14,42 @@ data Inst =
   Push Integer | Add | Mult | Sub | Tru | Fals | Equ | Le | And | Neg | Fetch String | Store String | Noop |
   Branch Code Code | Loop Code Code
   deriving Show
-data StackElement = Integer Int | Boolean Bool deriving Show
 
 type Code = [Inst]
-type Stack =  [StackElement]
-type Storage = Map.Map String Integer
-type State = (Stack, Code, Storage)
-
-tt :: Int
-tt = 1 -- TRUE
-
-ff :: Int
-ff = 0 -- FALSE
-
--- STACK CODE
-
-createEmptyStack :: Stack
-createEmptyStack =  []
-
-stack2Str :: Stack -> String
-stack2Str = intercalate "," . map show
+type State = Map.Map String StackValue
 
 -- STACK FUNCTIONS
 
-push :: StackElement -> Stack -> Stack
-push x xs = x : xs
+createEmptyStack :: Stack 
+createEmptyStack = St []
+  
+stack2Str :: Stack -> String
+stack2Str (St s) = intercalate "," . map show $ s
 
-fetchX :: String -> Storage -> Integer
-fetchX x s = case Map.lookup x s of
-  Just n -> n
-  Nothing -> error "Variable not found"
+isEmpty :: Stack  -> Bool
+isEmpty (St []) = True
+isEmpty _ = False
 
-storeX :: String -> Integer -> Storage -> Storage
-storeX = Map.insert
+push :: StackValue -> Stack -> Stack
+push x (St xs) = St (x:xs)
+
+fetchX :: String -> Stack -> State -> Stack
+fetchX x (St xs) s = case Map.lookup x s of
+  Just val -> push val (St xs)
+  Nothing -> St xs
+-- STATE CODE
+
+createEmptyState :: State
+createEmptyState = Map.empty
+
+state2Str :: State -> String
+state2Str s = intercalate "," . map (\(x,y) -> x ++ "=" ++ show y) $ Map.toList s
+
+
 
 
 
 -- ARITHMETIC FUNCTIONS
-
-add :: Stack -> Maybe Stack
-add (Integer x:Integer y:xs) = Just $ Integer (x+y) : xs
-add _ = error "Run-time error"
-
-mult :: Stack -> Maybe Stack
-mult (Integer x:Integer y:xs) = Just $ Integer (x*y) : xs
-mult _ = error "Run-time error"
-
-sub :: Stack -> Maybe Stack
-sub (Integer x:Integer y:xs) = Just $ Integer (y-x) : xs
-sub _ = error "Run-time error"
-
-eq :: Stack -> Maybe Stack
-eq (Integer x:Integer y:xs) = Just $ Boolean (x==y) : xs
-eq (Boolean x:Boolean y:xs) = Just $ Boolean (x==y) : xs
-eq _ = error "Run-time error"
-
-le :: Stack -> Maybe Stack
-le (Integer x:Integer y:xs) = Just $ Boolean (y<=x) : xs
-le _ = error "Run-time error"
-
-neg :: Stack -> Maybe Stack
-neg (Boolean x:xs) = Just $ Boolean (not x) : xs
-neg _ = error "Run-time error"
-
-
-
--- STATE CODE
-
-createEmptyState :: State
-createEmptyState = ([],[],Map.empty)
-
-state2Str :: State -> String
-state2Str (st, s) = show st ++ "\n" ++ show s
-
-
 
 
 
@@ -128,8 +97,8 @@ parse = undefined -- TODO
 
 -- To help you test your parser
 testParser :: String -> (String, String)
-testParser programCode = (stack2Str stack, store2Str store)
-  where (_,stack,store) = run (compile (parse programCode), createEmptyStack, createEmptyStore)
+testParser programCode = (stack2Str stack, state2Str store)
+  where (_,stack,store) = run (compile (parse programCode), createEmptyStack, createEmptyState)
 
 -- Examples:
 -- testParser "x := 5; x := x - 1;" == ("","x=4")
