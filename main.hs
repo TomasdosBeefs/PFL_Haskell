@@ -1,6 +1,6 @@
 import Data.List (intercalate)
 import qualified Data.Map as Map
--- Part 1
+-- Part One
 
 -- Do not modify our definition of Inst and Code
 data Inst =
