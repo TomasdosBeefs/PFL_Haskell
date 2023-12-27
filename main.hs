@@ -3,10 +3,24 @@ module Stack (Stack, stack2Str,createEmptyStack, isEmpty, push) where
 import Data.List (intercalate)
 import qualified Data.Map as Map
 
-data StackValue = I Integer | B Bool deriving Show
+data StackValue = I Integer | B Bool 
 newtype Stack = St [StackValue] deriving Show
 
+instance Show StackValue where
+  show (I i) = show i
+  show (B b) = show b
 
+class Stackable a where
+  toStackValue :: a -> StackValue
+
+instance Stackable Integer where
+  toStackValue = I
+
+instance Stackable Bool where
+  toStackValue = B
+
+instance Stackable StackValue where
+  toStackValue = id
 -- Part 1
 
 -- Do not modify our definition of Inst and Code
@@ -30,8 +44,9 @@ isEmpty :: Stack  -> Bool
 isEmpty (St []) = True
 isEmpty _ = False
 
-push :: StackValue -> Stack -> Stack
-push x (St xs) = St (x:xs)
+
+push :: Stackable a => a -> Stack -> Stack
+push x (St xs) = St (toStackValue x : xs)
 
 fetchX :: String -> Stack -> State -> Stack
 fetchX x (St xs) s = case Map.lookup x s of
