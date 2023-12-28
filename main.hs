@@ -1,9 +1,9 @@
-module Stack (Stack, stack2Str,createEmptyStack, isEmpty, push) where 
+module Stack (Stack, stack2Str,createEmptyStack, isEmpty, push) where
 
 import Data.List (intercalate)
 import qualified Data.Map as Map
 
-data StackValue = I Integer | B Bool 
+data StackValue = I Integer | B Bool
 newtype Stack = St [StackValue] deriving Show
 
 instance Show StackValue where
@@ -34,9 +34,9 @@ type State = Map.Map String StackValue
 
 -- STACK FUNCTIONS
 
-createEmptyStack :: Stack 
+createEmptyStack :: Stack
 createEmptyStack = St []
-  
+
 stack2Str :: Stack -> String
 stack2Str (St s) = intercalate "," . map show $ s
 
@@ -52,6 +52,41 @@ fetchX :: String -> Stack -> State -> Stack
 fetchX x (St xs) s = case Map.lookup x s of
   Just val -> push val (St xs)
   Nothing -> St xs
+
+storeX :: String -> Stack -> State -> (Stack,State)
+storeX x (St (v:vs)) s = (St vs , Map.insert x v s)
+
+branch :: Code -> Code -> Stack -> State -> (Code, Stack, State)
+branch c1 c2 s st = case s of
+  St (B True : xs) -> (c1, St xs, st)
+  St (B False : xs) -> (c2, St xs, st)
+  _ -> error "Run-time error"
+
+loop :: Code -> Code -> Stack -> State -> (Code, Stack, State)
+loop c1 c2 s st = case s of
+  St (B True : xs) -> (c1 ++ [Loop c1 c2], St xs, st)
+  St (B False : xs) -> (c2, St xs, st)
+  _ -> error "Run-time error"
+
+-- PROCESSING FUNCTIONS
+
+processInst :: Inst -> Stack -> State -> (Code,Stack, State)
+processInst (Push x) s st = ([], push x s, st)
+processInst Add s st = ([], add s, st)
+processInst Mult s st = ([], mult s, st)
+processInst Sub s st = ([], sub s, st)
+processInst Tru s st = ([], push True s, st)
+processInst Fals s st = ([], push False s, st)
+processInst Equ s st = ([], equ s, st)
+processInst Le s st = ([], le s, st)
+processInst Neg s st = ([], neg s, st)
+processInst (Fetch x) s st = ([], fetchX x s st, st)
+processInst (Store x) s st = ([], fst $ storeX x s st, snd $ storeX x s st)
+processInst Noop s st = ([], s, st)
+processInst (Branch c1 c2) s st = (c1, s, st)
+processInst (Loop c1 c2) s st = (c1 ++ [Loop c1 c2], s, st)
+
+
 -- STATE CODE
 
 createEmptyState :: State
@@ -60,17 +95,56 @@ createEmptyState = Map.empty
 state2Str :: State -> String
 state2Str s = intercalate "," . map (\(x,y) -> x ++ "=" ++ show y) $ Map.toList s
 
-
+createState :: Stackable a => [(String, a)] -> State
+createState = Map.fromList . map (\(k, v) -> (k, toStackValue v))
 
 
 
 -- ARITHMETIC FUNCTIONS
 
+add :: Stack -> Stack
+add (St (I x : I y : xs)) = St (I (x + y) : xs)
+add _ = error "Run-time error"
 
+mult :: Stack -> Stack
+mult (St (I x : I y : xs)) = St (I (x * y) : xs)
+mult _ = error "Run-time error"
+
+sub :: Stack -> Stack
+sub (St (I x : I y : xs)) = St (I (x - y) : xs)
+sub _ = error "Run-time error"
+
+neg :: Stack -> Stack
+neg (St (I x : xs)) = St (I (-x) : xs)
+neg _ = error "Run-time error"
+
+equ :: Stack -> Stack
+equ (St (I x : I y : xs)) = St (B (x == y) : xs)
+equ _ = error "Run-time error"
+
+le :: Stack -> Stack
+le (St (I x : I y : xs)) = St (B (x <= y) : xs)
+le _ = error "Run-time error"
+
+and :: Stack -> Stack
+and (St (B x : B y : xs)) = St (B (x && y) : xs)
+and _ = error "Run-time error"
+
+-- RUN FUNCTION
 
 
 run :: (Code, Stack, State) -> (Code, Stack, State)
-run = undefined -- TODO
+run ([], s, st) = ([], s, st)
+run (i:is, s, st) = run (is', s', st')
+  where
+    (is', s', st') = processInst i s st
+
+--run :: (Code, Stack, State) -> (Code, Stack, State)
+--run (is, s, st) = foldl process (is, s, st) is
+--  where
+ --   process (_, s, st) i = (is', s', st')
+  --    where
+   --     (is', s', st') = processInst i s st
 
 -- To help you test your assembler
 testAssembler :: Code -> (String, String)
@@ -128,3 +202,8 @@ testParser programCode = (stack2Str stack, state2Str store)
 -- testParser "if (1 == 0+1 = (2+1 == 4)) then x := 1; else x := 2;" == ("","x=2")
 -- testParser "x := 2; y := (x - 3)*(4 + 2*3); z := x +x*(2);" == ("","x=2,y=-10,z=6")
 -- testParser "i := 10; fact := 1; while (not(i == 1)) do (fact := fact * i; i := i - 1;);" == ("","fact=3628800,i=1")
+
+
+
+
+  
