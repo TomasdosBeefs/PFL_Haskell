@@ -3,12 +3,14 @@ module Stack (Stack, stack2Str,createEmptyStack, isEmpty, push) where
 import Data.List (intercalate)
 import qualified Data.Map as Map
 
-data StackValue = I Integer | B Bool
-newtype Stack = St [StackValue] deriving Show
+data StackValue = I Integer | B Bool | TT | FF
+newtype Stack = St [StackValue]
 
 instance Show StackValue where
   show (I i) = show i
   show (B b) = show b
+  show TT  =  "tt"
+  show FF  =  "ff"
 
 class Stackable a where
   toStackValue :: a -> StackValue
@@ -21,6 +23,12 @@ instance Stackable Bool where
 
 instance Stackable StackValue where
   toStackValue = id
+
+
+
+instance Show Stack where
+  show (St []) = "Empty Stack"
+  show (St xs) = "Stack " ++ show xs
 -- Part 1
 
 -- Do not modify our definition of Inst and Code
@@ -33,6 +41,8 @@ type Code = [Inst]
 type State = Map.Map String StackValue
 
 -- STACK FUNCTIONS
+
+
 
 createEmptyStack :: Stack
 createEmptyStack = St []
@@ -57,16 +67,24 @@ storeX :: String -> Stack -> State -> (Stack,State)
 storeX x (St (v:vs)) s = (St vs , Map.insert x v s)
 
 branch :: Code -> Code -> Stack -> State -> (Code, Stack, State)
-branch c1 c2 s st = case s of
-  St (B True : xs) -> (c1, St xs, st)
-  St (B False : xs) -> (c2, St xs, st)
+branch c1 c2 s st =
+  case s of
+  St (TT : xs) -> (c1, St xs, st)
+  St (FF : xs) -> (c2, St xs, st)
   _ -> error "Run-time error"
 
-loop :: Code -> Code -> Stack -> State -> (Code, Stack, State)
-loop c1 c2 s st = case s of
-  St (B True : xs) -> (c1 ++ [Loop c1 c2], St xs, st)
-  St (B False : xs) -> (c2, St xs, st)
-  _ -> error "Run-time error"
+
+
+loop :: Code -> Code -> Code -> Stack -> State -> (Code, Stack, State)
+loop c1 c2 rest stack state =(c1 ++ [Branch (c2 ++ [Loop c1 c2]) [Noop]] ++ rest, stack, state)
+
+  -- error "Run-time error: Loop with non-boolean value on top of the stack"
+
+--loop :: Code -> Code -> Stack -> State -> (Code, Stack, State)
+--loop c1 c2 s st = case s of
+--  St (B True : xs) -> (c1 ++ [Loop c1 c2], St xs, st)
+--  St (B False : xs) -> (c2, St xs, st)
+--  _ -> error "Run-time error"
 
 -- PROCESSING FUNCTIONS
 
@@ -75,17 +93,19 @@ processInst (Push x) s st = ([], push x s, st)
 processInst Add s st = ([], add s, st)
 processInst Mult s st = ([], mult s, st)
 processInst Sub s st = ([], sub s, st)
-processInst Tru s st = ([], push True s, st)
-processInst Fals s st = ([], push False s, st)
+processInst Tru s st = ([], push TT s, st)
+processInst Fals s st = ([], push FF s, st)
 processInst Equ s st = ([], equ s, st)
 processInst Le s st = ([], le s, st)
 processInst Neg s st = ([], neg s, st)
 processInst (Fetch x) s st = ([], fetchX x s st, st)
 processInst (Store x) s st = ([], fst $ storeX x s st, snd $ storeX x s st)
 processInst Noop s st = ([], s, st)
-processInst (Branch c1 c2) s st = (c1, s, st)
-processInst (Loop c1 c2) s st = (c1 ++ [Loop c1 c2], s, st)
-
+processInst (Branch c1 c2) s st = branch c1 c2 s st
+--processInst (Loop c1 c2) s st = loop c1 c2 s st
+--processInst (Loop c1 c2) s st = (c1 ++ [Branch (c2 ++ [Loop c1 c2]) [Noop]] ++ rest, s, st)
+  --where
+    --(rest, s, st) = processInst (Loop c1 c2) s st
 
 -- STATE CODE
 
@@ -133,18 +153,18 @@ and _ = error "Run-time error"
 -- RUN FUNCTION
 
 
-run :: (Code, Stack, State) -> (Code, Stack, State)
-run ([], s, st) = ([], s, st)
-run (i:is, s, st) = run (is', s', st')
-  where
-    (is', s', st') = processInst i s st
-
 --run :: (Code, Stack, State) -> (Code, Stack, State)
---run (is, s, st) = foldl process (is, s, st) is
---  where
- --   process (_, s, st) i = (is', s', st')
-  --    where
-   --     (is', s', st') = processInst i s st
+--run ([], s, st) = ([], s, st)
+--run (i:is, s, st) = run (is', s', st')
+ -- where
+  --  (is', s', st') = processInst i s st
+
+run :: (Code, Stack, State) -> (Code, Stack, State)
+run (is, s, st) = foldl process (is, s, st) is
+  where
+   process (_, s, st) i = (is', s', st')
+    where
+       (is', s', st') = processInst i s st
 
 -- To help you test your assembler
 testAssembler :: Code -> (String, String)
@@ -205,5 +225,16 @@ testParser programCode = (stack2Str stack, state2Str store)
 
 
 
+main :: IO ()
 
-  
+main = do
+  -- Define some instructions
+  let c1 = [Push 1,Push 2, And]
+
+  -- Define a stack with a boolean value on top
+  let stack = createEmptyStack
+  let state = createEmptyState
+
+  let (code,stack1,state1) = run (c1, stack, state)
+
+  print code 
