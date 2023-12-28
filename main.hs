@@ -2,6 +2,7 @@ module Stack (Stack, stack2Str,createEmptyStack, isEmpty, push) where
 
 import Data.List (intercalate)
 import qualified Data.Map as Map
+import Main (StackElement(Integer))
 
 data StackValue = I Integer | B Bool 
 newtype Stack = St [StackValue] deriving Show
@@ -48,8 +49,8 @@ isEmpty _ = False
 push :: Stackable a => a -> Stack -> Stack
 push x (St xs) = St (toStackValue x : xs)
 
-fetchX :: String -> Stack -> State -> Stack
-fetchX x (St xs) s = case Map.lookup x s of
+fetch :: String -> Stack -> State -> Stack
+fetch x (St xs) s = case Map.lookup x s of
   Just val -> push val (St xs)
   Nothing -> St xs
 -- STATE CODE
@@ -66,11 +67,65 @@ state2Str s = intercalate "," . map (\(x,y) -> x ++ "=" ++ show y) $ Map.toList 
 
 -- ARITHMETIC FUNCTIONS
 
+branch :: Code -> Code -> Code -> Stack -> State -> (Code, Stack, State)
+branch c1 c2 rest (top:restStack) state =
+  case top of
+    True -> run (c1 ++ rest, restStack, state)
+    False -> run (c2 ++ rest, restStack, state)
+    _ -> error "Run-time error: Branch with non-boolean value on top of the stack"
+
+loop :: Code -> Code -> Code -> Stack -> State -> (Code, Stack, State)
+loop c1 c2 rest (top:restStack) state =
+  case top of
+    Boolean True -> run (c1 ++ [Branch (c2 ++ [Loop c1 c2]) [Noop]] ++ rest, restStack, state)
+    Boolean False -> run (rest, restStack, state)
+    _ -> error "Run-time error: Loop with non-boolean value on top of the stack"
 
 
 
 run :: (Code, Stack, State) -> (Code, Stack, State)
-run = undefined -- TODO
+run ([], stack, state) = ([], stack, state)  -- End of execution
+run (inst:rest, stack, state) =
+  case inst of
+    Add -> case add stack of
+      Just newStack -> run (rest, newStack, state)
+      Nothing -> error "Run-time error: Addition failed"
+
+    Mult -> case mult stack of
+      Just newStack -> run (rest, newStack, state)
+      Nothing -> error "Run-time error: Multiplication failed"
+
+    Sub -> case sub stack of
+      Just newStack -> run (rest, newStack, state)
+      Nothing -> error "Run-time error: Subtraction failed"
+
+    Tru -> run (rest, push True stack, state)
+    Fals -> run (rest, push False stack, state)
+
+    Equ -> case eq stack of
+      Just newStack -> run (rest, newStack, state)
+      Nothing -> error "Run-time error: Equality comparison failed"
+
+    Le -> case le stack of
+      Just newStack -> run (rest, newStack, state)
+      Nothing -> error "Run-time error: Less than or equal comparison failed"
+
+    And -> case neg stack of
+      Just newStack -> run (rest, newStack, state)
+      Nothing -> error "Run-time error: Logical AND failed"
+
+    Push n -> run (rest, push n stack, state)
+
+    Fetch x -> run (rest, fetch x stack, state)
+
+    Branch c1 c2 -> branch c1 c2 rest stack state
+
+    Loop c1 c2 -> loop c1 c2 rest stack state
+
+    Noop -> run (rest, stack, state)
+
+    _ -> error "Run-time error: Unhandled instruction"
+
 
 -- To help you test your assembler
 testAssembler :: Code -> (String, String)
