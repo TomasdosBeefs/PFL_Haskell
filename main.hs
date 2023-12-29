@@ -3,6 +3,7 @@ module Stack (Stack, stack2Str,createEmptyStack, isEmpty, push) where
 import Data.List (intercalate)
 import qualified Data.Map as Map
 
+
 data StackValue = I Integer | B Bool | TT | FF
 newtype Stack = St [StackValue]
 
@@ -224,29 +225,38 @@ testParser programCode = (stack2Str stack, state2Str store)
 -- testParser "i := 10; fact := 1; while (not(i == 1)) do (fact := fact * i; i := i - 1;);" == ("","fact=3628800,i=1")
 
 
-myIsSpace :: Char -> Bool
-myIsSpace c = c == ' ' || c == '\t' || c == '\n' || c == '\r'
 
-myIsDigit :: Char -> Bool
-myIsDigit c = c >= '0' && c <= '9'
+IsSpace :: Char -> Bool
+IsSpace c = c == ' ' || c == '\t' || c == '\n' || c == '\r'
 
-myIsAlpha :: Char -> Bool
-myIsAlpha c = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+IsDigit :: Char -> Bool
+IsDigit c = c >= '0' && c <= '9'
 
-myIsOperator :: Char -> Bool
-myIsOperator c = elem c "+-*/=;<>^:¬"
+IsAlpha :: Char -> Bool
+IsAlpha c = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+
+IsOperator :: Char -> Bool
+IsOperator c = elem c "+-*/=;<>^:¬"
 
 
 lexer :: String -> [String]
 lexer [] = []
 lexer (c:cs)
-    | myIsSpace c = lexer cs
-    | myIsDigit c = let (num, rest) = span myIsDigit (c:cs) in num : lexer rest
-    | myIsAlpha c = let (letter, rest) = span myIsAlpha (c:cs) in letter : lexer rest
-    | myIsOperator c = let (op, rest) = span myIsOperator (c:cs) in op : lexer rest
+    | IsSpace c = lexer cs
+    | IsDigit c = let (num, rest) = span IsDigit (c:cs) in num : lexer rest
+    | IsAlpha c = let (letter, rest) = span IsAlpha (c:cs) in letter : lexer rest
+    | IsOperator c = let (op, rest) = span IsOperator (c:cs) in op : lexer rest
     | c == '(' = ['('] : lexer cs
     | c == ')' = [')'] : lexer cs
-    | otherwise = let (other, rest) = span (not . myIsSpace) (c:cs) in other : lexer rest
+    | otherwise = let (other, rest) = span (not . IsSpace) (c:cs) in other : lexer rest
+
+IsKeyword :: String -> Bool
+IsKeyword str = elem str ["while", "if", "then", "else", "do", "not"]
+
+
+isVariable :: String -> Bool
+isVariable (c:cs) = IsAlpha c && all (\x -> IsAlpha x || IsDigit x) cs
+isVariable _ = False
 
 
 main :: IO ()
