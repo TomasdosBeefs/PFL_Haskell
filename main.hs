@@ -425,8 +425,9 @@ parseStms tokens
 
 removecomma :: [String] -> [String]
 removecomma [] = []
-removecomma (x:xs) = takeWhile (/= ";") (x:xs) ++   dropWhile (/= "else") (x:xs)
-
+removecomma (x:xs)
+  | x == "else" = takeWhile (/= ")") xs ++ drop 1 (dropWhile (/= ")") xs)
+  | otherwise = x : removecomma xs
 -- LEXER
 
 isSpace :: Char -> Bool
@@ -468,7 +469,7 @@ isVariable _ = False
 
 main :: IO ()
 main = do
-  let testString = "if (not True and 2 <= 5 == 3 == 4) then x :=1; else y := 2;"
-  
-  let parsed = parse testString
+  let testString = "x := 42; if x <= 43 then x := 1; else (x:= 33; x := x+1;); y := x*2;)"
+  let t = testString
+  let parsed = parse t
   print parsed
