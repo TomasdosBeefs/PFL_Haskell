@@ -1,7 +1,11 @@
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Eta reduce" #-}
 module Stack (Stack, stack2Str,createEmptyStack, isEmpty, push) where
 
 import Data.List (intercalate)
 import qualified Data.Map as Map
+import Text.Parsec (tokens)
+import Graphics.Win32 (restoreDC)
 
 data StackValue = I Integer | B Bool  deriving Eq
 newtype Stack = St [StackValue]
@@ -245,7 +249,7 @@ testAssembler code = (stack2Str stack, state2Str state)
 data Aexp = Num Integer | Var String | AddP Aexp Aexp | SubP Aexp Aexp | MultP Aexp Aexp deriving Show
 data Bexp = BP Bool | Eq Aexp Aexp | LeP Aexp Aexp | Not Bexp | AndP Bexp Bexp deriving Show
 data Stm = Assign String Aexp | Skip | Comp Stm Stm | If Bexp Stm Stm | While Bexp Stm deriving Show
-
+data Exp = A Aexp | BB Bexp deriving Show
 type Program = Stm
 
 compile :: Program -> Code
@@ -279,38 +283,114 @@ buildData :: [String] -> [Program]
 buildData [] = []
 buildData (x:xs) = parseStm (x:xs) : buildData (drop 1 (dropWhile (/= ";")  xs))
 
+parseAexp :: [String] -> Maybe (Aexp, [String])
+parseAexp tokens = parseAddSub tokens
+
+
+
+parseMult :: [String] -> Maybe (Aexp, [String])
+parseMult tokens = case parseFactor tokens of
+  Just (a1, "*" : tokens') -> case parseMult tokens' of
+    Just (a2, tokens'') -> Just (MultP a1 a2, tokens'')
+    Nothing -> Just (a1, tokens')
+  Just (a1, tokens') -> Just (a1, tokens')
+  Nothing -> Nothing
+
+parseAddSub :: [String] -> Maybe (Aexp, [String])
+parseAddSub tokens = do
+  (a1, tokens') <- parseMult tokens
+  case tokens' of
+    "+" : tokens'' -> do
+      (a2, tokens''') <- parseAddSub tokens''
+      return (AddP a1 a2, tokens''')
+    "-" : tokens'' -> do
+      (a2, tokens''') <- parseAddSub tokens''
+      return (SubP a1 a2, tokens''')
+    _ -> return (a1, tokens')
+
+parseFactor :: [String] -> Maybe (Aexp, [String])
+parseFactor ("(" : tokens) = do
+  (a, ")" : tokens') <- parseAddSub tokens
+  return (a, tokens')
+parseFactor (x : tokens)
+  | isVariable x = Just (Var x, tokens)
+  | isDigit (head x) = Just (Num (read x), tokens)
+parseFactor _ = Nothing
+
+parseExp :: [String] -> Maybe (Exp, [String])
+parseExp tokens = case parseAexp tokens of
+  Just (a, tokens') -> Just (A a, tokens')
+  Nothing -> case parseBexp tokens of
+    Just (b, tokens') -> Just (BB b, tokens')
+    Nothing -> Nothing
+
+
+
+
+parseBexp :: [String] -> Maybe (Bexp, [String])
+parseBexp tokens = parseEq tokens
+
+parseEq :: [String] -> Maybe (Bexp, [String])
+parseEq tokens = do
+  (a1, tokens') <- parseAddSub tokens
+  case tokens' of
+    "==" : tokens'' -> do
+      (a2, tokens''') <- parseAddSub tokens''
+      return (Eq a1 a2, tokens''')
+    _ -> return (BP True, tokens')
+
+parseLe :: [String] -> Maybe (Bexp, [String])
+parseLe tokens = do
+  (a1, tokens') <- parseAddSub tokens
+  case tokens' of
+    "<=" : tokens'' -> do
+      (a2, tokens''') <- parseAddSub tokens''
+      return (LeP a1 a2, tokens''')
+    _ -> return (BP True, tokens')
+
+parseNot :: [String] -> Maybe (Bexp, [String])
+parseNot tokens = do
+  ("not" : tokens') <- Just tokens
+  (b, tokens'') <- parseBexp tokens'
+  return (Not b, tokens'')
+
+parseAnd :: [String] -> Maybe (Bexp, [String])
+parseAnd tokens = do
+  (b1, tokens') <- parseBexp tokens
+  case tokens' of
+    "and" : tokens'' -> do
+      (b2, tokens''') <- parseBexp tokens''
+      return (AndP b1 b2, tokens''')
+    _ -> return (b1, tokens')
 
 parseStm :: [String] -> Program
-parseStm (x:y:xs)
-    | isVariable x && head xs == ":=" = if y == Aexp then             else Assign x (parseAexp (drop 1 xs))
-    | x == "skip" = Skip
-    | x == "if" = If (parseBexp (drop 1 xs)) (parseStm (drop 1 (dropWhile (/= "then") xs))) (parseStm (drop 1 (dropWhile (/= "else") xs)))
-    | x == "while" = While (parseBexp (drop 1 xs)) (parseStm (drop 1 (dropWhile (/= "do") xs)))
-    | otherwise = error "Syntax error"
+parseStm ("if" : tokens) = If b s1 s2
+  where
+    Just (b, tokens') = parseBexp tokens
+    s1 = parseStm (drop 1 (dropWhile (/= "then") tokens'))
+    s2 = parseStm (drop 1 (dropWhile (/= "else") tokens'))
 
+parseStm ("while" : tokens) = While b s
+  where
+    Just (b, tokens') = parseBexp tokens
+    s = parseStm (drop 1 (dropWhile (/= "do") tokens'))
 
+parseStm (x : ":=" : tokens) = Assign x a
+  where
+    Just (a, tokens') = parseAexp tokens
 
-parseAexp :: [String] -> Aexp
-parseAexp (x:y:xs)
-    | isVariable x = Var x
-    | isDigit (head x) = Num (read x :: Integer) 
-    | x == "(" = parseAexp (takeWhile (/= ")") xs)
-    | x == "-" = SubP (Num 0) (parseAexp xs)
-    | x == "+" = AddP (Num 0) (parseAexp xs)
-    | x == "*" = MultP (Num 1) (parseAexp xs)
-    | otherwise = error "Syntax error"
+parseStm ("skip" : tokens) = Skip
+parseStm tokens = Comp s1 s2
+  where
+    s1 = parseStm (takeWhile (/= ";") tokens)
+    s2 = parseStm (drop 1 (dropWhile (/= ";") tokens))
 
-parseBexp :: [String] -> Bexp
-parseBexp (x:xs)
-    | x == "true" = BP True
-    | x == "false" = BP False
-    | x == "not" = Not (parseBexp xs)
-    | x == "(" = parseBexp (takeWhile (/= ")") xs)
-    | x == "¬" = Not (parseBexp xs)
-    | x == "and" = AndP (parseBexp xs) (parseBexp (drop 1 (dropWhile (/= "and") xs)))
-    | x == "=" = Eq (parseAexp xs) (parseAexp (drop 1 (dropWhile (/= "=") xs)))
-    | x == "<=" = LeP (parseAexp xs) (parseAexp (drop 1 (dropWhile (/= "<=") xs)))
-    | otherwise = error "Syntax error"
+parseStms :: [String] -> [Program]
+parseStms [] = []
+parseStms tokens = case break (== ";") tokens of
+  (stmTokens, ";":restTokens) -> parseStm stmTokens : parseStms restTokens
+  (stmTokens, _) -> [parseStm stmTokens]
+-- Examples:
 
 
 -- LEXER
@@ -350,16 +430,15 @@ isVariable _ = False
 -- Examples:
 -- lexer "x := 5; x := x - 1;" == ["x",":=","5",";","x",":=","x","-","1",";"]
 -- lexer "x := 0 - 2;" == ["x",":=","0","-","2",";"]
-main :: IO ()  5 + (9*4) - 3 * (4+4)
+
+testParser :: String -> Maybe Aexp
+testParser str = do
+    (expr, restTokens) <- parseAddSub (words str)
+    if null restTokens then
+        Just expr
+    else
+        Nothing
+
+main :: IO ()
 main = do
-    let c = "x := 5"
-    let (x:stt) = lexer c
-
-    let b = isVariable x && head stt == ":="
-    let sbb = drop 1 stt
-    print sbb
-    let d = Assign x (parseAexp (drop 1 stt))
-
-    print stt
-
-
+    print $ parseStms (words "x := 5 ; y := x + 1 ; if x == y then x := 1 ; else y := 2 ; while x <= 5 do x := x + 1 ;")
