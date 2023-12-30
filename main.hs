@@ -385,13 +385,18 @@ parseStm tokens = Comp s1 s2
     s1 = parseStm (takeWhile (/= ";") tokens)
     s2 = parseStm (drop 1 (dropWhile (/= ";") tokens))
 
+
+
 parseStms :: [String] -> [Program]
 parseStms [] = []
-parseStms tokens = case break (== ";") tokens of
-  (stmTokens, ";":restTokens) -> parseStm stmTokens : parseStms restTokens
-  (stmTokens, _) -> [parseStm stmTokens]
--- Examples:
+parseStms tokens
+   | head tokens == "if" = [parseStm (removecomma tokens)]
+  | otherwise = let (stmTokens, restTokens) = break (== ";") tokens
+               in parseStm stmTokens : parseStms (drop 1 restTokens)
 
+removecomma :: [String] -> [String]
+removecomma [] = []
+removecomma (x:xs) = takeWhile (/= ";") (x:xs) ++   (dropWhile (/= "else") (x:xs))
 
 -- LEXER
 
@@ -441,4 +446,5 @@ testParser str = do
 
 main :: IO ()
 main = do
-    print $ parseStms (words "x := 5 ; y := x + 1 ; if x == y then x := 1 ; else y := 2 ; while x <= 5 do x := x + 1 ;")
+    let tokens = words "x := 5 ; y := x + 1 ; if x == y then x := 1 ; else y := 2 ; while x <= y do x := x + 1 ;"
+    print $ parseStms tokens
