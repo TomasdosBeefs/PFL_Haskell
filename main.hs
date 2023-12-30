@@ -281,12 +281,10 @@ parse = buildData.lexer
 
 buildData :: [String] -> [Program]
 buildData [] = []
-buildData (x:xs) = parseStm (x:xs) : buildData (drop 1 (dropWhile (/= ";")  xs))
+buildData l = parseStms l
 
 parseAexp :: [String] -> Maybe (Aexp, [String])
 parseAexp tokens = parseAddSub tokens
-
-
 
 parseMult :: [String] -> Maybe (Aexp, [String])
 parseMult tokens = case parseFactor tokens of
@@ -324,11 +322,10 @@ parseExp tokens = case parseAexp tokens of
     Just (b, tokens') -> Just (BB b, tokens')
     Nothing -> Nothing
 
-
-
-
 parseBexp :: [String] -> Maybe (Bexp, [String])
-parseBexp tokens = parseEq tokens
+parseBexp tokens 
+ | head tokens == "(" = parseBexp (tail tokens)
+  | head tokens == "not" = parseNot tokens
 
 parseEq :: [String] -> Maybe (Bexp, [String])
 parseEq tokens = do
@@ -390,13 +387,13 @@ parseStm tokens = Comp s1 s2
 parseStms :: [String] -> [Program]
 parseStms [] = []
 parseStms tokens
-   | head tokens == "if" = [parseStm (removecomma tokens)]
+   | head tokens == "if" = parseStm (removecomma tokens) : parseStms (drop 1 (dropWhile (/= "else") tokens))
   | otherwise = let (stmTokens, restTokens) = break (== ";") tokens
                in parseStm stmTokens : parseStms (drop 1 restTokens)
 
 removecomma :: [String] -> [String]
 removecomma [] = []
-removecomma (x:xs) = takeWhile (/= ";") (x:xs) ++   (dropWhile (/= "else") (x:xs))
+removecomma (x:xs) = takeWhile (/= ";") (x:xs) ++   dropWhile (/= "else") (x:xs)
 
 -- LEXER
 
@@ -446,5 +443,6 @@ testParser str = do
 
 main :: IO ()
 main = do
-    let tokens = words "x := 5 ; y := x + 1 ; if x == y then x := 1 ; else y := 2 ; while x <= y do x := x + 1 ;"
+    let tokens = lexer "x := 5 ; y := x + 1 ; if x == y then x := 1 ; else y := 2 ; while x <= y do x := x + 1 ;"
     print $ parseStms tokens
+
