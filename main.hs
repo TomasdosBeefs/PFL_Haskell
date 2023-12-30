@@ -1,11 +1,13 @@
-{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
-{-# HLINT ignore "Eta reduce" #-}
+
 module Stack (Stack, stack2Str,createEmptyStack, isEmpty, push) where
 
 import Data.List (intercalate)
 import qualified Data.Map as Map
 import Text.Parsec (tokens)
+
 import Graphics.Win32 (restoreDC)
+import Control.Applicative ((<|>))
+import Control.Monad
 
 data StackValue = I Integer | B Bool  deriving Eq
 newtype Stack = St [StackValue]
@@ -227,10 +229,10 @@ testAssembler code = (stack2Str stack, state2Str state)
 -- parse :: String -> Program
 --parse = undefined -- TODO
 
--- To help you test your parser
+ --To help you test your parser
 --testParser :: String -> (String, String)
 --testParser programCode = (stack2Str stack, state2Str store)
- -- where (_,stack,store) = run (compile (parse programCode), createEmptyStack, createEmptyState)
+ --where (_,stack,store) = run (compile (parse programCode), createEmptyStack, createEmptyState)
 
 -- Examples:
 -- testParser "x := 5; x := x - 1;" == ("","x=4")
@@ -247,7 +249,7 @@ testAssembler code = (stack2Str stack, state2Str state)
 -- testParser "i := 10; fact := 1; while (not(i == 1)) do (fact := fact * i; i := i - 1;);" == ("","fact=3628800,i=1")
 
 data Aexp = Num Integer | Var String | AddP Aexp Aexp | SubP Aexp Aexp | MultP Aexp Aexp deriving Show
-data Bexp = BP Bool | Eq Aexp Aexp | LeP Aexp Aexp | Not Bexp | AndP Bexp Bexp deriving Show
+data Bexp = BP Bool | Eq Aexp Aexp | EqB Bexp Bexp | LeP Aexp Aexp | Not Bexp | AndP Bexp Bexp deriving Show
 data Stm = Assign String Aexp | Skip | Comp Stm Stm | If Bexp Stm Stm | While Bexp Stm deriving Show
 data Exp = A Aexp | BB Bexp deriving Show
 type Program = Stm
@@ -284,7 +286,7 @@ buildData [] = []
 buildData l = parseStms l
 
 parseAexp :: [String] -> Maybe (Aexp, [String])
-parseAexp tokens = parseAddSub tokens
+parseAexp = parseAddSub
 
 parseMult :: [String] -> Maybe (Aexp, [String])
 parseMult tokens = case parseFactor tokens of
@@ -322,43 +324,73 @@ parseExp tokens = case parseAexp tokens of
     Just (b, tokens') -> Just (BB b, tokens')
     Nothing -> Nothing
 
+
 parseBexp :: [String] -> Maybe (Bexp, [String])
-parseBexp tokens 
- | head tokens == "(" = parseBexp (tail tokens)
-  | head tokens == "not" = parseNot tokens
-
-parseEq :: [String] -> Maybe (Bexp, [String])
-parseEq tokens = do
-  (a1, tokens') <- parseAddSub tokens
-  case tokens' of
-    "==" : tokens'' -> do
-      (a2, tokens''') <- parseAddSub tokens''
-      return (Eq a1 a2, tokens''')
-    _ -> return (BP True, tokens')
-
-parseLe :: [String] -> Maybe (Bexp, [String])
-parseLe tokens = do
-  (a1, tokens') <- parseAddSub tokens
-  case tokens' of
-    "<=" : tokens'' -> do
-      (a2, tokens''') <- parseAddSub tokens''
-      return (LeP a1 a2, tokens''')
-    _ -> return (BP True, tokens')
-
-parseNot :: [String] -> Maybe (Bexp, [String])
-parseNot tokens = do
-  ("not" : tokens') <- Just tokens
-  (b, tokens'') <- parseBexp tokens'
-  return (Not b, tokens'')
-
-parseAnd :: [String] -> Maybe (Bexp, [String])
-parseAnd tokens = do
-  (b1, tokens') <- parseBexp tokens
+parseBexp tokens = do
+  (b1, tokens') <- parseBexpFactor tokens
   case tokens' of
     "and" : tokens'' -> do
       (b2, tokens''') <- parseBexp tokens''
       return (AndP b1 b2, tokens''')
     _ -> return (b1, tokens')
+
+
+parseBexpFactor :: [String] -> Maybe (Bexp, [String])
+parseBexpFactor ("(" : tokens) = do
+  (b, ")" : tokens') <- parseBexp tokens
+  return (b, tokens')
+parseBexpFactor ("True" : tokens) = Just (BP True, tokens)
+parseBexpFactor ("False" : tokens) = Just (BP False, tokens)
+parseBexpFactor tokens = parseEq tokens <|> parseLe tokens <|> parseNot tokens
+
+
+parseEq :: [String] -> Maybe (Bexp, [String])
+parseEq tokens = do
+  (e1, tokens') <- parseExp tokens
+  case tokens' of
+    "==" : tokens'' -> do
+      (e2, tokens''') <- parseExp tokens''
+      case (extractExp e1, extractExp e2) of
+        (Left a1, Left a2) -> return (Eq a1 a2, tokens''')
+        (Right b1, Right b2) -> return (EqB b1 b2, tokens''')
+        _ -> Nothing
+    _ -> Nothing
+
+extractAexp :: Exp -> Aexp
+extractAexp (A a) = a
+extractAexp (BB _) = error "Expected Aexp, but got Bexp"
+
+extractExp :: Exp -> Either Aexp Bexp
+extractExp (A a) = Left a
+extractExp (BB b) = Right b
+
+
+parseLe :: [String] -> Maybe (Bexp, [String])
+parseLe tokens = do
+  (e1, tokens') <- parseExp tokens
+  case tokens' of
+    "<=" : tokens'' -> do
+      (e2, tokens''') <- parseExp tokens''
+      case (extractExp e1, extractExp e2) of
+        (Left a1, Left a2) -> return (LeP a1 a2, tokens''')
+        _ -> Nothing
+    _ -> Nothing
+
+parseAnd :: [String] -> Maybe (Bexp, [String])
+parseAnd tokens = do
+  (b1, tokens') <- parseBexpFactor tokens
+  case tokens' of
+    "and" : tokens'' -> do
+      (b2, tokens''') <- parseBexpFactor tokens''
+      return (AndP b1 b2, tokens''')
+    _ -> Nothing
+
+parseNot :: [String] -> Maybe (Bexp, [String])
+parseNot tokens = do
+  ("not" : tokens') <- Just tokens
+  (b, tokens'') <- parseBexpFactor tokens'
+  return (Not b, tokens'')
+
 
 parseStm :: [String] -> Program
 parseStm ("if" : tokens) = If b s1 s2
@@ -387,7 +419,7 @@ parseStm tokens = Comp s1 s2
 parseStms :: [String] -> [Program]
 parseStms [] = []
 parseStms tokens
-   | head tokens == "if" = parseStm (removecomma tokens) : parseStms (drop 1 (dropWhile (/= "else") tokens))
+  | head tokens == "if" = parseStm (removecomma tokens) : parseStms (drop 1 (dropWhile (/= ";") (dropWhile (/= "else") tokens)))
   | otherwise = let (stmTokens, restTokens) = break (== ";") tokens
                in parseStm stmTokens : parseStms (drop 1 restTokens)
 
@@ -433,16 +465,10 @@ isVariable _ = False
 -- lexer "x := 5; x := x - 1;" == ["x",":=","5",";","x",":=","x","-","1",";"]
 -- lexer "x := 0 - 2;" == ["x",":=","0","-","2",";"]
 
-testParser :: String -> Maybe Aexp
-testParser str = do
-    (expr, restTokens) <- parseAddSub (words str)
-    if null restTokens then
-        Just expr
-    else
-        Nothing
 
 main :: IO ()
 main = do
-    let tokens = lexer "x := 5 ; y := x + 1 ; if x == y then x := 1 ; else y := 2 ; while x <= y do x := x + 1 ;"
-    print $ parseStms tokens
-
+  let testString = "if (not True and 2 <= 5 == 3 == 4) then x :=1; else y := 2;"
+  
+  let parsed = parse testString
+  print parsed
