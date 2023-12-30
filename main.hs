@@ -14,7 +14,7 @@ ff = B False
 instance Show StackValue where
   show (I i) = show i
   show (B b) = show b
- 
+
 
 class Stackable a where
   toStackValue :: a -> StackValue
@@ -110,7 +110,7 @@ processInst Noop s st = ([], s, st)
 processInst (Branch c1 c2) s st = branch c1 c2 s st
 --processInst (Loop c1 c2) s st = loop c1 c2 s st
 processInst (Loop c1 c2) s st = (c1 ++ [Branch (c2 ++ [Loop c1 c2]) [Noop]], s, st)
- 
+
 
 -- STATE CODE
 
@@ -212,21 +212,21 @@ testAssembler code = (stack2Str stack, state2Str state)
 -- TODO: Define the types Aexp, Bexp, Stm and Program
 
 -- compA :: Aexp -> Code
-compA = undefined -- TODO
+--compA = undefined -- TODO
 
 -- compB :: Bexp -> Code
-compB = undefined -- TODO
+--compB = undefined -- TODO
 
 -- compile :: Program -> Code
-compile = undefined -- TODO
+
 
 -- parse :: String -> Program
-parse = undefined -- TODO
+--parse = undefined -- TODO
 
 -- To help you test your parser
-testParser :: String -> (String, String)
-testParser programCode = (stack2Str stack, state2Str store)
-  where (_,stack,store) = run (compile (parse programCode), createEmptyStack, createEmptyState)
+--testParser :: String -> (String, String)
+--testParser programCode = (stack2Str stack, state2Str store)
+ -- where (_,stack,store) = run (compile (parse programCode), createEmptyStack, createEmptyState)
 
 -- Examples:
 -- testParser "x := 5; x := x - 1;" == ("","x=4")
@@ -241,4 +241,125 @@ testParser programCode = (stack2Str stack, state2Str store)
 -- testParser "if (1 == 0+1 = (2+1 == 4)) then x := 1; else x := 2;" == ("","x=2")
 -- testParser "x := 2; y := (x - 3)*(4 + 2*3); z := x +x*(2);" == ("","x=2,y=-10,z=6")
 -- testParser "i := 10; fact := 1; while (not(i == 1)) do (fact := fact * i; i := i - 1;);" == ("","fact=3628800,i=1")
+
+data Aexp = Num Integer | Var String | AddP Aexp Aexp | SubP Aexp Aexp | MultP Aexp Aexp deriving Show
+data Bexp = BP Bool | Eq Aexp Aexp | LeP Aexp Aexp | Not Bexp | AndP Bexp Bexp deriving Show
+data Stm = Assign String Aexp | Skip | Comp Stm Stm | If Bexp Stm Stm | While Bexp Stm deriving Show
+
+type Program = Stm
+
+compile :: Program -> Code
+compile = compStm
+
+compA :: Aexp -> Code
+compA (Num n) = [Push n]
+compA (Var x) = [Fetch x]
+compA (AddP a1 a2) = compA a1 ++ compA a2 ++ [Add]
+compA (SubP a1 a2) = compA a1 ++ compA a2 ++ [Sub]
+compA (MultP a1 a2) = compA a1 ++ compA a2 ++ [Mult]
+
+compB :: Bexp -> Code
+compB (BP b) = if b then [Tru] else [Fals]
+compB (Eq a1 a2) = compA a1 ++ compA a2 ++ [Equ]
+compB (LeP a1 a2) = compA a1 ++ compA a2 ++ [Le]
+compB (Not b) = compB b ++ [Neg]
+compB (AndP b1 b2) = compB b1 ++ compB b2 ++ [And]
+
+compStm :: Stm -> Code
+compStm (Assign x a) = compA a ++ [Store x]
+compStm Skip = [Noop]
+compStm (Comp s1 s2) = compStm s1 ++ compStm s2
+compStm (If b s1 s2) = compB b ++ [Branch (compStm s1) (compStm s2)]
+compStm (While b s) = [Loop (compB b) (compStm s)]
+
+parse :: String -> [Stm]
+parse = buildData.lexer
+
+buildData :: [String] -> [Program]
+buildData [] = []
+buildData (x:xs) = parseStm (x:xs) : buildData (drop 1 (dropWhile (/= ";")  xs))
+
+
+parseStm :: [String] -> Program
+parseStm (x:y:xs)
+    | isVariable x && head xs == ":=" = if y == Aexp then             else Assign x (parseAexp (drop 1 xs))
+    | x == "skip" = Skip
+    | x == "if" = If (parseBexp (drop 1 xs)) (parseStm (drop 1 (dropWhile (/= "then") xs))) (parseStm (drop 1 (dropWhile (/= "else") xs)))
+    | x == "while" = While (parseBexp (drop 1 xs)) (parseStm (drop 1 (dropWhile (/= "do") xs)))
+    | otherwise = error "Syntax error"
+
+
+
+parseAexp :: [String] -> Aexp
+parseAexp (x:y:xs)
+    | isVariable x = Var x
+    | isDigit (head x) = Num (read x :: Integer) 
+    | x == "(" = parseAexp (takeWhile (/= ")") xs)
+    | x == "-" = SubP (Num 0) (parseAexp xs)
+    | x == "+" = AddP (Num 0) (parseAexp xs)
+    | x == "*" = MultP (Num 1) (parseAexp xs)
+    | otherwise = error "Syntax error"
+
+parseBexp :: [String] -> Bexp
+parseBexp (x:xs)
+    | x == "true" = BP True
+    | x == "false" = BP False
+    | x == "not" = Not (parseBexp xs)
+    | x == "(" = parseBexp (takeWhile (/= ")") xs)
+    | x == "¬" = Not (parseBexp xs)
+    | x == "and" = AndP (parseBexp xs) (parseBexp (drop 1 (dropWhile (/= "and") xs)))
+    | x == "=" = Eq (parseAexp xs) (parseAexp (drop 1 (dropWhile (/= "=") xs)))
+    | x == "<=" = LeP (parseAexp xs) (parseAexp (drop 1 (dropWhile (/= "<=") xs)))
+    | otherwise = error "Syntax error"
+
+
+-- LEXER
+
+isSpace :: Char -> Bool
+isSpace c = c == ' ' || c == '\t' || c == '\n' || c == '\r'
+
+isDigit :: Char -> Bool
+isDigit c = c >= '0' && c <= '9'
+
+isAlpha :: Char -> Bool
+isAlpha c = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+
+isOperator :: Char -> Bool
+isOperator c = elem c "+-*/=;<>^:¬"
+
+
+lexer :: String -> [String]
+lexer [] = []
+lexer (c:cs)
+    | isSpace c = lexer cs
+    | isDigit c = let (num, rest) = span isDigit (c:cs) in num : lexer rest
+    | isAlpha c = let (letter, rest) = span isAlpha (c:cs) in letter : lexer rest
+    | isOperator c = let (op, rest) = span isOperator (c:cs) in op : lexer rest
+    | c == '(' = ['('] : lexer cs
+    | c == ')' = [')'] : lexer cs
+    | otherwise = let (other, rest) = span (not . isSpace) (c:cs) in other : lexer rest
+
+isKeyword :: String -> Bool
+isKeyword str = elem str ["while", "if", "then", "else", "do", "not"]
+
+
+isVariable :: String -> Bool
+isVariable (c:cs) = isAlpha c && all (\x -> isAlpha x || isDigit x) cs
+isVariable _ = False
+
+-- Examples:
+-- lexer "x := 5; x := x - 1;" == ["x",":=","5",";","x",":=","x","-","1",";"]
+-- lexer "x := 0 - 2;" == ["x",":=","0","-","2",";"]
+main :: IO ()  5 + (9*4) - 3 * (4+4)
+main = do
+    let c = "x := 5"
+    let (x:stt) = lexer c
+
+    let b = isVariable x && head stt == ":="
+    let sbb = drop 1 stt
+    print sbb
+    let d = Assign x (parseAexp (drop 1 stt))
+
+    print stt
+
 
