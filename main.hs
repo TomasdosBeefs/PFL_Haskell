@@ -368,15 +368,15 @@ thenstatement :: Parser Stm
 thenstatement = try (parens statement) <|> (statement' <* semi)
 
 elsestatement :: Parser Stm
-elsestatement = try(parens statement) <|> (statement' <* semi)
+elsestatement = try(parens statement) <|> (statement')
 
  
 
 
 stmtSeq :: Parser Stm
-stmtSeq = f <$> sepEndBy1 statement' semi'
+stmtSeq = f <$> endBy statement' semi
   where f l = if length l == 1 then head l else Seq l
-semi' = try ( semi >> lookAhead (try (reserved "else" >> return ()))) <|> try ( lookAhead (try (reserved "do" >> return ()))) <|>  (semi >> return ())
+
 
 statement' :: Parser Stm
 statement' = ifStm <|> whileStm <|> skipStm <|> assignStm
@@ -419,7 +419,7 @@ program = whiteSpace >> statement `sepBy` semi
 
 -- Assuming your other parser definitions are in scope...
 hardcodedProgram :: String
-hardcodedProgram = "i := 10; fact := 1; while (not(i == 1)) do (fact := fact * i; i := i - 1;);"
+hardcodedProgram = "x := 42; if x <= 43 then x := 1; else x := 33; x := x+1; z := x+x;"
   -- i := 10; fact := 1; while (not(i == 1)) do (fact := fact * i; i := i - 1;);
 main :: IO ()
 main = do
