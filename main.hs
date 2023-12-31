@@ -11,6 +11,7 @@ import qualified Text.Parsec.Token as Token
 import Text.ParserCombinators.Parsec.Expr (buildExpressionParser, Operator (..))
 import Text.Parsec.Expr (Assoc(AssocLeft))
 import GHC.RTS.Flags (DebugFlags())
+import Control.Monad.RWS (MonadState(state))
 
 
 data StackValue = I Integer | B Bool  deriving Eq
@@ -147,7 +148,7 @@ mult (St (I x : I y : xs)) = St (I (x * y) : xs)
 mult _ = error "Run-time error"
 
 sub :: Stack -> Stack
-sub (St (I x : I y : xs)) = St (I (x - y) : xs)
+sub (St (I x : I y : xs)) = St (I (y - x) : xs)
 sub _ = error "Run-time error"
 
 neg :: Stack -> Stack
@@ -361,14 +362,21 @@ stm :: Parser Stm
 stm =  statement'
 
 statement :: Parser Stm
-statement = stmtSeq <|> parens statement
+statement = parens statement <|> stmtSeq
+
+thenstatement :: Parser Stm
+thenstatement = try (parens statement) <|> (statement' <* semi)
+
+elsestatement :: Parser Stm
+elsestatement = try(parens statement) <|> (statement' <* semi)
+
+ 
 
 
 stmtSeq :: Parser Stm
-stmtSeq = f <$> endBy1 statement' semi
+stmtSeq = f <$> sepEndBy1 statement' semi'
   where f l = if length l == 1 then head l else Seq l
-        --semi' = try (semi >> notFollowedBy (reserved "else")) <|> try (semi >> notFollowedBy (reserved "do"))
-
+semi' = try ( semi >> lookAhead (try (reserved "else" >> return ()))) <|> try ( lookAhead (try (reserved "do" >> return ()))) <|>  (semi >> return ())
 
 statement' :: Parser Stm
 statement' = ifStm <|> whileStm <|> skipStm <|> assignStm
@@ -378,10 +386,9 @@ ifStm = do
   reserved "if"
   b <- bexp
   reserved "then"
-  s1 <- statement
+  s1 <- thenstatement
   reserved "else"
-  s2 <- statement
-  
+  s2 <- elsestatement
   return $ If b s1 s2
 
 whileStm :: Parser Stm
@@ -390,7 +397,6 @@ whileStm = do
   b <- bexp
   reserved "do"
   s <- statement
-  
   return $ While b s
 
 assignStm :: Parser Stm
@@ -403,14 +409,6 @@ assignStm = do
 skipStm :: Parser Stm
 skipStm = reserved "skip" >> return Skip
 
-
-
-
-
-
-
-
-
 program :: Parser Program
 program = whiteSpace >> statement `sepBy` semi
 
@@ -420,14 +418,28 @@ program = whiteSpace >> statement `sepBy` semi
 
 
 -- Assuming your other parser definitions are in scope...
-testParser :: IO ()
-testParser = do
-    let input = "if 1 == 1 then x := 1 else x := 2"
-    case parse statement "" input of
-        Left e  -> print e
-        Right r -> print r
-
-
+hardcodedProgram :: String
+hardcodedProgram = "i := 10; fact := 1; while (not(i == 1)) do (fact := fact * i; i := i - 1;);"
+  -- i := 10; fact := 1; while (not(i == 1)) do (fact := fact * i; i := i - 1;);
 main :: IO ()
 main = do
-    testParser
+  putStrLn "Hardcoded program:"
+  putStrLn hardcodedProgram
+
+  case parse program "Program" hardcodedProgram of
+    Left err -> putStrLn $ "Parse error: " ++ show err
+    Right parsedProgram -> do
+      putStrLn "\nParsed program:"
+      print parsedProgram
+      putStrLn "\nCompiled code:"
+      let compiledCode = compile parsedProgram
+      print compiledCode
+
+      putStrLn "\nRunning the program:"
+      let initialState = (compiledCode, createEmptyStack, createEmptyState)
+      let (_, finalStack, finalState) = run initialState
+
+      putStrLn "\nFinal Stack:"
+      print finalStack
+      putStrLn "\nFinal State:"
+      print finalState
