@@ -303,6 +303,7 @@ compB (EqA a1 a2) = compA a1 ++ compA a2 ++ [Equ]
 compB (LeA a1 a2) = compA a1 ++ compA a2 ++ [Le]
 compB (Not b) = compB b ++ [Neg]
 compB (AndP b1 b2) = compB b1 ++ compB b2 ++ [And]
+compB (EqB b1 b2) = compB b1 ++ compB b2 ++ [Equ]
 
 compStm :: Stm -> Code
 compStm (Assign x a) = compA a ++ [Store x]
@@ -339,9 +340,9 @@ aTerm =  parens aexp
 
 bexp :: Parser Bexp
 bexp = buildExpressionParser bOperators bTerm
-bOperators = [ [Prefix (Not <$ reservedOp "not")]
-              , [Infix  (AndP <$ reservedOp "and") AssocLeft
-              , Infix  (EqB   <$ reservedOp "==") AssocLeft]
+bOperators = [ [Prefix (Not <$ reservedOp "not")],
+                [Infix  (EqB   <$ reservedOp "=") AssocLeft]
+              , [Infix  (AndP <$ reservedOp "and") AssocLeft]
               ]
 bTerm =  parens bexp
       <|> (reserved "True" >> return (BP True))
@@ -415,11 +416,9 @@ program = whiteSpace >> statement `sepBy` semi
 
 -- Your parser definitions go here
 
-
-
 -- Assuming your other parser definitions are in scope...
 hardcodedProgram :: String
-hardcodedProgram = "x := 42; if x <= 43 then x := 1; else x := 33; x := x+1; z := x+x;"
+hardcodedProgram = "if (not True and 2 <= 5 = 3 == 4) then x :=1; else y := 2;"
   -- i := 10; fact := 1; while (not(i == 1)) do (fact := fact * i; i := i - 1;);
 main :: IO ()
 main = do
